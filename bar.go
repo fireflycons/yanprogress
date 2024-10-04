@@ -253,9 +253,16 @@ func renderProgressBar(percentage int, width int) string {
 	return fmt.Sprintf("%s%s", bar, stringRepeat(" ", emptyWidth))
 }
 
+var spinners = func() []string {
+	if isPowerlineFont() {
+		return []string{"⠋", "⠙", "⠚", "⠒", "⠂", "⠂", "⠒", "⠲", "⠴", "⠦", "⠖", "⠒", "⠐", "⠐", "⠒", "⠓", "⠋"}
+	} else {
+		return []string{"\\", "|", "-", "/"}
+	}
+}()
+
 // Helper function to render spinner for unbounded progress
 func renderSpinner(current uint64) string {
-	spinners := []string{"⠋", "⠙", "⠚", "⠒", "⠂", "⠂", "⠒", "⠲", "⠴", "⠦", "⠖", "⠒", "⠐", "⠐", "⠒", "⠓", "⠋"}
 	return spinners[current%uint64(len(spinners))]
 }
 
@@ -274,4 +281,25 @@ func formatSpeed(speed float64) string {
 		return fmt.Sprintf("%.1f", speed) // One decimal place if speed < 100
 	}
 	return fmt.Sprintf("%.0f", speed) // Whole number if speed >= 100
+}
+
+// powerlineSymbols to check (most common symbols used in Powerline fonts)
+
+// Function to check if a Powerline font is being used
+func isPowerlineFont() bool {
+	// Attempt to print Powerline symbols
+	var powerlineSymbols = []rune{
+		'\uE0B0', // 
+		'\uE0B1', // 
+		'\uE0A0', // 
+		'\uE0A1', // 
+	}
+	for _, symbol := range powerlineSymbols {
+		symbolStr := fmt.Sprintf("%c", symbol)
+		// Check if the rendered string contains replacement characters
+		if strings.ContainsRune(symbolStr, '\uFFFD') {
+			return false
+		}
+	}
+	return true
 }
