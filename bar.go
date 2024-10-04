@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,7 @@ type (
 		dest        io.Writer     // destination eg stdout/stderr
 		isRunning   bool          // true after Start has been called
 		taskChanged bool
+		isaTTY      bool
 	}
 
 	optionFunc func(*ProgressBar)
@@ -47,6 +49,14 @@ func NewProgressBar(max int64, interval time.Duration, opts ...optionFunc) *Prog
 	for _, o := range opts {
 		o(p)
 	}
+
+	p.isaTTY = func() bool {
+		if f, ok := p.dest.(*os.File); ok {
+			return isatty(f.Fd())
+		}
+
+		return false
+	}()
 
 	return p
 }
@@ -75,7 +85,10 @@ func (p *ProgressBar) Complete() {
 	p.redraw()
 
 	close(p.done)
-	if p.isatty() {
+	if p.isaTTY {
+		if runtime.GOOS == "windows" {
+			cursorMoveDown(3)
+		}
 		cursorShow() // Show the cursor on completion
 	}
 }
@@ -87,7 +100,7 @@ func (p *ProgressBar) SetStatus(status string) {
 
 	if p.isRunning {
 		// Clear the old task line before setting a new task
-		if p.lastTaskLen > 0 {
+		if p.lastTaskLen > 0 && p.isaTTY {
 			p.clearTaskLine()
 		}
 		p.redraw()
@@ -99,9 +112,6 @@ func (p *ProgressBar) SetStatus(status string) {
 
 // Start hides the cursor and starts drawing the progress bar.
 func (p *ProgressBar) Start() {
-	if p.isatty() {
-		cursorHide() // Hide the cursor when the progress bar starts
-	}
 
 	// Emit new lines to avoid overwriting existing terminal content
 	p.prepareNewLines()
@@ -125,6 +135,9 @@ func (p *ProgressBar) Start() {
 
 // clearTaskLine clears the task line by moving the cursor up and overwriting it with spaces
 func (p *ProgressBar) clearTaskLine() {
+	if !p.isaTTY {
+		return
+	}
 	// Move the cursor up to the task line and clear it
 	cursorMoveUp(p.lines)
 	fmt.Print("\r" + stringRepeat(" ", p.lastTaskLen)) // Clear the line by overwriting with spaces
@@ -148,8 +161,6 @@ func (p *ProgressBar) prepareNewLines() {
 
 // redraw dynamically adjusts the bar's width and adapts to terminal resizing
 func (p *ProgressBar) redraw() {
-	// Move the cursor up by the number of lines the progress bar takes up
-	cursorMoveUp(p.lines)
 
 	// Calculate progress percentage and iterations/second
 	current := atomic.LoadUint64(&p.current)
@@ -173,8 +184,10 @@ func (p *ProgressBar) redraw() {
 		}
 	}
 
-	if p.isatty() {
+	if p.isaTTY {
 		// Writing to a regualar terminal - we can move the cursor
+		// Move the cursor up by the number of lines the progress bar takes up
+		cursorMoveUp(p.lines)
 
 		// Get the current terminal width and dynamically adjust the bar size
 		width := getTerminalWidth()
@@ -221,14 +234,6 @@ func (p *ProgressBar) redraw() {
 		fmt.Fprintf(p.dest, "(%s it/s)\n", speedFormatted)
 	}
 
-}
-
-func (p ProgressBar) isatty() bool {
-	if f, ok := p.dest.(*os.File); ok {
-		return isatty(f.Fd())
-	}
-
-	return false
 }
 
 // Helper function to render a bounded progress bar

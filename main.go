@@ -1,10 +1,14 @@
 package main
 
-import "time"
+import (
+	"fmt"
+	"os"
+	"time"
+)
 
 func main() {
 	// Example usage
-	bar := NewProgressBar(100, 500*time.Millisecond)
+	bar := NewProgressBar(100, 500*time.Millisecond, WithWriter(os.Stdout))
 	bar.SetStatus("Downloading File")
 	bar.Start()
 
@@ -18,4 +22,5 @@ func main() {
 		}
 	}
 	bar.Complete()
+	fmt.Println("Done")
 }
