@@ -63,7 +63,7 @@ func cursorShow() {
 func moveCursorVertically(lines int) error {
 
 	// Get the handle to the standard output (stdout).
-	handle := syscall.Handle(os.Stdout.Fd())
+	handle := getConsoleHandle()
 
 	// Create a buffer to store console screen buffer information.
 	var csbi _CONSOLE_SCREEN_BUFFER_INFO

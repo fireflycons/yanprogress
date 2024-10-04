@@ -113,6 +113,10 @@ func (p *ProgressBar) SetStatus(status string) {
 // Start hides the cursor and starts drawing the progress bar.
 func (p *ProgressBar) Start() {
 
+	if p.isaTTY {
+		cursorHide()
+	}
+
 	// Emit new lines to avoid overwriting existing terminal content
 	p.prepareNewLines()
 
