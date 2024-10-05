@@ -1,3 +1,9 @@
+
+// Package yanprogress provides Yet ANother Progressbar!
+//
+// This is a simple one that provides a bar when the total value is known, or a spinner when it is not.
+// It also detects whether the output device is a real tty. If it is not, then output is line by line suitable for log files
+// or environments that capture the terminal streams e.g. containers or CI systems.
 package main
 
 import (
@@ -13,7 +19,7 @@ import (
 
 type (
 	ProgressBar struct {
-		max           int64           // Maximum value (the 100% mark)
+		max           uint64          // Maximum value (the 100% mark)
 		current       uint64          // The current progress value
 		spinnerPos    int             // Position of spinner if using spinner
 		interval      time.Duration   // Interval between redraws
@@ -31,6 +37,15 @@ type (
 	optionFunc func(*ProgressBar)
 )
 
+// Spinner charaters
+var spinners = func() []string {
+	if runtime.GOOS != "windows" {
+		return []string{"⠋", "⠙", "⠚", "⠒", "⠂", "⠂", "⠒", "⠲", "⠴", "⠦", "⠖", "⠒", "⠐", "⠐", "⠒", "⠓", "⠋"}
+	} else {
+		return []string{"\\", "|", "/", "-"}
+	}
+}()
+
 // WithWriter sets the output stream for the bar (default os.Stderr)
 func WithWriter(w io.Writer) optionFunc {
 	return func(p *ProgressBar) {
@@ -38,11 +53,13 @@ func WithWriter(w io.Writer) optionFunc {
 	}
 }
 
-// NewProgressBar creates a new progress bar
-func NewProgressBar(max int64, interval time.Duration, opts ...optionFunc) *ProgressBar {
+// NewProgressBar creates a new progress bar.
+//
+// Set max to zero for an unbounded spinner, else it is the value that represents 100% complete.
+func NewProgressBar(max uint64, redrawInterval time.Duration, opts ...optionFunc) *ProgressBar {
 	p := &ProgressBar{
 		max:      max,
-		interval: interval,
+		interval: redrawInterval,
 		start:    time.Now(),
 		done:     make(chan struct{}),
 		dest:     os.Stderr,
@@ -65,12 +82,12 @@ func NewProgressBar(max int64, interval time.Duration, opts ...optionFunc) *Prog
 	return p
 }
 
-// Inc increments the progress bar by one.
+// Inc increments the progress bar's value by one.
 func (p *ProgressBar) Inc() {
 	atomic.AddUint64(&p.current, 1)
 }
 
-// Set sets the progress bar to a specific value.
+// Set sets the progress bar's value to a specific value.
 func (p *ProgressBar) Set(value uint64) {
 	atomic.StoreUint64(&p.current, value)
 }
@@ -106,6 +123,8 @@ func (p *ProgressBar) Start() {
 }
 
 // Complete marks the progress as complete and shows the cursor.
+//
+// It also cancels the goroutine responsible for redrawing the bar.
 func (p *ProgressBar) Complete() {
 
 	p.isRunning = false
@@ -127,7 +146,9 @@ func (p *ProgressBar) Complete() {
 	}
 }
 
-// SetStatus sets the status for the progress bar.
+// SetStatus sets the status line for the progress bar.
+//
+// Use this to indicate to users what is currently happening.
 func (p *ProgressBar) SetStatus(status string) {
 
 	p.status = strings.TrimSpace(status)
@@ -155,7 +176,7 @@ func (p *ProgressBar) redraw() {
 	elapsed := time.Since(p.start).Seconds()
 	speed := float64(current) / elapsed
 
-	// Format the speed based on the condition (< 25 -> 1 decimal place, >= 25 -> whole number)
+	// Format the speed based on the condition (< 100 -> 1 decimal place, >= 100 -> whole number)
 	speedFormatted := formatSpeed(speed)
 
 	var percentage int
@@ -180,6 +201,7 @@ func (p *ProgressBar) redraw() {
 	}
 }
 
+// renderTerminal handles redraw for tty device.
 func (p *ProgressBar) renderTerminal(percentage int, speedFormatted string) {
 	// Writing to a regualar terminal - we can move the cursor
 	// Move the cursor up by the number of lines the progress bar takes up
@@ -211,7 +233,9 @@ func (p *ProgressBar) renderTerminal(percentage int, speedFormatted string) {
 	}
 }
 
+// renderNonTerminal handles redraw when output device is not a tty.
 func (p *ProgressBar) renderNonTerminal(percentage int, speedFormatted string) {
+	// When output is not tty, print to a new line
 	if p.statusChanged {
 		fmt.Fprintf(p.dest, "%s\n", p.status)
 		p.statusChanged = false
@@ -236,14 +260,6 @@ func renderProgressBar(percentage int, width int) string {
 	}
 	return fmt.Sprintf("%s%s", bar, stringRepeat(" ", emptyWidth))
 }
-
-var spinners = func() []string {
-	if runtime.GOOS != "windows" {
-		return []string{"⠋", "⠙", "⠚", "⠒", "⠂", "⠂", "⠒", "⠲", "⠴", "⠦", "⠖", "⠒", "⠐", "⠐", "⠒", "⠓", "⠋"}
-	} else {
-		return []string{"\\", "|", "/", "-"}
-	}
-}()
 
 // Helper function to repeat a string n times
 func stringRepeat(s string, count int) string {
