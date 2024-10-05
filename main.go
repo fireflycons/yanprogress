@@ -8,7 +8,7 @@ import (
 
 func main() {
 	// Example usage
-	bar := NewProgressBar(100, 500*time.Millisecond, WithWriter(os.Stdout))
+	bar := NewProgressBar(0, 500*time.Millisecond, WithWriter(os.Stdout))
 	bar.SetStatus("Downloading File")
 	bar.Start()
 

@@ -58,6 +58,21 @@ func cursorShow() {
 	cursorShowHide(true)
 }
 
+// GetCursorPosition retrieves the cursor position
+func GetCursorPosition() (int, int, error) {
+	handle := getConsoleHandle()
+
+	var csbi _CONSOLE_SCREEN_BUFFER_INFO
+	success, _, err := getConsoleScreenBufferInfo.Call(uintptr(handle), uintptr(unsafe.Pointer(&csbi)))
+
+	if success == 0 {
+		return 0, 0, err
+	}
+
+	// col, row
+	return int(csbi.CursorPosition.X), int(csbi.CursorPosition.Y), nil
+}
+
 // moveCursorVertically moves the console cursor up or down by the specified number of lines.
 // Negative values move the cursor up, positive values move it down.
 func moveCursorVertically(lines int) error {
@@ -107,15 +122,6 @@ func cursorMoveUp(lines int) {
 	}
 
 	moveCursorVertically(0 - lines)
-}
-
-// cursorMoveUp moves the cursor up by a number of lines in Windows.
-func cursorMoveDown(lines int) {
-	if lines == 0 {
-		return
-	}
-
-	moveCursorVertically(lines)
 }
 
 // getConsoleHandle gets the handle for the console output.

@@ -6,24 +6,26 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 type (
 	ProgressBar struct {
-		max         int64         // Maximum value (the 100% mark)
-		lastTaskLen int           // Length of the last task text
-		current     uint64        // The current progress value
-		interval    time.Duration // Interval between redraws
-		start       time.Time     // Time when the bar was started
-		status      string        // Status description (if any)
-		done        chan struct{} // Channel to signal completion
-		lines       int           // Number of lines needed for the progress bar
-		dest        io.Writer     // destination eg stdout/stderr
-		isRunning   bool          // true after Start has been called
-		taskChanged bool
-		isaTTY      bool
+		max           int64           // Maximum value (the 100% mark)
+		current       uint64          // The current progress value
+		spinnerPos    int             // Position of spinner if using spinner
+		interval      time.Duration   // Interval between redraws
+		dest          io.Writer       // destination eg stdout/stderr
+		wg            *sync.WaitGroup // Waits on final redraw on completion
+		lock          *sync.Mutex     // Sync calls to redraw
+		start         time.Time       // Time when the bar was started
+		status        string          // Status description (if any)
+		isRunning     bool            // true after Start has been called
+		statusChanged bool            // Set if SetStatus is called
+		isaTTY        bool            // Set by constructor to know if we have a real TTY
+		done          chan struct{}   // Channel to signal completion
 	}
 
 	optionFunc func(*ProgressBar)
@@ -44,6 +46,8 @@ func NewProgressBar(max int64, interval time.Duration, opts ...optionFunc) *Prog
 		start:    time.Now(),
 		done:     make(chan struct{}),
 		dest:     os.Stderr,
+		wg:       &sync.WaitGroup{},
+		lock:     &sync.Mutex{},
 	}
 
 	for _, o := range opts {
@@ -71,48 +75,10 @@ func (p *ProgressBar) Set(value uint64) {
 	atomic.StoreUint64(&p.current, value)
 }
 
-// Complete marks the progress as complete and shows the cursor.
-func (p *ProgressBar) Complete() {
-
-	p.isRunning = false
-
-	if p.max > 0 {
-		// Set the current progress to the max explicitly
-		atomic.StoreUint64(&p.current, uint64(p.max))
-	}
-
-	// Redraw one last time at exactly 100%
-	p.redraw()
-
-	close(p.done)
-	if p.isaTTY {
-		if runtime.GOOS == "windows" {
-			cursorMoveDown(3)
-		}
-		cursorShow() // Show the cursor on completion
-	}
-}
-
-// SetStatus sets the status for the progress bar.
-func (p *ProgressBar) SetStatus(status string) {
-
-	p.status = strings.TrimSpace(status)
-
-	if p.isRunning {
-		// Clear the old task line before setting a new task
-		if p.lastTaskLen > 0 && p.isaTTY {
-			p.clearTaskLine()
-		}
-		p.redraw()
-	}
-
-	p.lastTaskLen = len(status)
-	p.taskChanged = true
-}
-
 // Start hides the cursor and starts drawing the progress bar.
 func (p *ProgressBar) Start() {
 
+	fmt.Fprintf(p.dest, "\n")
 	if p.isaTTY {
 		cursorHide()
 	}
@@ -120,7 +86,9 @@ func (p *ProgressBar) Start() {
 	// Emit new lines to avoid overwriting existing terminal content
 	p.prepareNewLines()
 
+	p.wg.Add(1)
 	go func() {
+		defer p.wg.Done()
 		ticker := time.NewTicker(p.interval)
 		defer ticker.Stop()
 		for {
@@ -137,34 +105,50 @@ func (p *ProgressBar) Start() {
 	p.isRunning = true
 }
 
-// clearTaskLine clears the task line by moving the cursor up and overwriting it with spaces
-func (p *ProgressBar) clearTaskLine() {
-	if !p.isaTTY {
-		return
+// Complete marks the progress as complete and shows the cursor.
+func (p *ProgressBar) Complete() {
+
+	p.isRunning = false
+
+	if p.max > 0 {
+		// Set the current progress to the max explicitly
+		atomic.StoreUint64(&p.current, uint64(p.max))
 	}
-	// Move the cursor up to the task line and clear it
-	cursorMoveUp(p.lines)
-	fmt.Print("\r" + stringRepeat(" ", p.lastTaskLen)) // Clear the line by overwriting with spaces
-	fmt.Print("\r")                                    // Move cursor back to the start of the line
-	cursorMoveDown(p.lines)
+
+	// Redraw one last time at exactly 100%
+	//p.redraw()
+
+	close(p.done)
+	p.wg.Wait()
+
+	if p.isaTTY {
+		fmt.Fprintln(p.dest)
+		cursorShow() // Show the cursor on completion
+	}
+}
+
+// SetStatus sets the status for the progress bar.
+func (p *ProgressBar) SetStatus(status string) {
+
+	p.status = strings.TrimSpace(status)
+	p.statusChanged = true
+
+	if p.isRunning {
+		p.redraw()
+	}
 }
 
 // prepareNewLines emits enough new lines to ensure the progress bar doesn't overwrite existing terminal content
 func (p *ProgressBar) prepareNewLines() {
-	if p.status != "" {
-		p.lines = 2 // 1 line for task, 1 line for progress bar
-	} else {
-		p.lines = 1 // 1 line for progress bar only
-	}
-
-	// Emit enough new lines to account for the space the progress bar will take
-	for i := 0; i < p.lines; i++ {
-		fmt.Println()
-	}
+	fmt.Fprintln(p.dest)
+	fmt.Fprintln(p.dest)
 }
 
 // redraw dynamically adjusts the bar's width and adapts to terminal resizing
 func (p *ProgressBar) redraw() {
+
+	p.lock.Lock()
+	defer p.lock.Unlock()
 
 	// Calculate progress percentage and iterations/second
 	current := atomic.LoadUint64(&p.current)
@@ -189,55 +173,55 @@ func (p *ProgressBar) redraw() {
 	}
 
 	if p.isaTTY {
-		// Writing to a regualar terminal - we can move the cursor
-		// Move the cursor up by the number of lines the progress bar takes up
-		cursorMoveUp(p.lines)
-
-		// Get the current terminal width and dynamically adjust the bar size
-		width := getTerminalWidth()
-		availableWidth := width - 20 // Reserve space for percentage and speed display
-
-		if p.max > 0 {
-			// Bounded progress bar
-			percentage := int((float64(current) / float64(p.max)) * 100)
-
-			// Clamp the percentage to be within [0, 100]
-			if percentage < 0 {
-				percentage = 0
-			} else if percentage > 100 {
-				percentage = 100
-			}
-
-			bar := renderProgressBar(percentage, availableWidth)
-			if p.status != "" {
-				fmt.Fprintf(p.dest, "%s\n", p.status)
-			}
-
-			fmt.Fprintf(p.dest, "[%s] %3d%% (%s it/s)\n", bar, percentage, speedFormatted)
-
-		} else {
-
-			// Unbounded spinner
-			spinner := renderSpinner(current)
-			if p.status != "" {
-				fmt.Fprintf(p.dest, "%s\n", p.status)
-			}
-			fmt.Fprintf(p.dest, "%s (%s it/s)\n", spinner, speedFormatted)
-		}
+		p.renderTerminal(percentage, speedFormatted)
 	} else {
-		// non-terminal oputput device (like maybe a log file or redirected output)
-		if p.taskChanged {
-			fmt.Fprintf(p.dest, "%s\n", p.status)
-			p.taskChanged = false
-		}
+		// non-terminal output device (like maybe a log file or redirected output)
+		p.renderNonTerminal(percentage, speedFormatted)
+	}
+}
 
-		if p.max > 0 {
-			fmt.Fprintf(p.dest, "%3d%% ", percentage)
-		}
+func (p *ProgressBar) renderTerminal(percentage int, speedFormatted string) {
+	// Writing to a regualar terminal - we can move the cursor
+	// Move the cursor up by the number of lines the progress bar takes up
+	cursorMoveUp(2)
 
-		fmt.Fprintf(p.dest, "(%s it/s)\n", speedFormatted)
+	// Get the current terminal width and dynamically adjust the bar size
+	width := getTerminalWidth()
+
+	// Reserve space for percentage and speed display
+	availableWidth := width - 20
+
+	if p.statusChanged {
+		fmt.Fprint(p.dest, "\r"+stringRepeat(" ", width-1)+"\r")
+		p.statusChanged = false
 	}
 
+	fmt.Fprintf(p.dest, "%s\n", p.status)
+
+	if p.max > 0 {
+		// Percentage bar
+		bar := renderProgressBar(percentage, availableWidth)
+		fmt.Fprintf(p.dest, "[%s] %3d%% (%s it/s)\n", bar, percentage, speedFormatted)
+
+	} else {
+		// Unbounded spinner
+		spinner := spinners[p.spinnerPos]
+		p.spinnerPos = (p.spinnerPos + 1) % len(spinners)
+		fmt.Fprintf(p.dest, "%s (%s it/s)\n", spinner, speedFormatted)
+	}
+}
+
+func (p *ProgressBar) renderNonTerminal(percentage int, speedFormatted string) {
+	if p.statusChanged {
+		fmt.Fprintf(p.dest, "%s\n", p.status)
+		p.statusChanged = false
+	}
+
+	if p.max > 0 {
+		fmt.Fprintf(p.dest, "%3d%% ", percentage)
+	}
+
+	fmt.Fprintf(p.dest, "(%s it/s)\n", speedFormatted)
 }
 
 // Helper function to render a bounded progress bar
@@ -254,17 +238,12 @@ func renderProgressBar(percentage int, width int) string {
 }
 
 var spinners = func() []string {
-	if isPowerlineFont() {
+	if runtime.GOOS != "windows" {
 		return []string{"⠋", "⠙", "⠚", "⠒", "⠂", "⠂", "⠒", "⠲", "⠴", "⠦", "⠖", "⠒", "⠐", "⠐", "⠒", "⠓", "⠋"}
 	} else {
-		return []string{"\\", "|", "-", "/"}
+		return []string{"\\", "|", "/", "-"}
 	}
 }()
-
-// Helper function to render spinner for unbounded progress
-func renderSpinner(current uint64) string {
-	return spinners[current%uint64(len(spinners))]
-}
 
 // Helper function to repeat a string n times
 func stringRepeat(s string, count int) string {
@@ -281,25 +260,4 @@ func formatSpeed(speed float64) string {
 		return fmt.Sprintf("%.1f", speed) // One decimal place if speed < 100
 	}
 	return fmt.Sprintf("%.0f", speed) // Whole number if speed >= 100
-}
-
-// powerlineSymbols to check (most common symbols used in Powerline fonts)
-
-// Function to check if a Powerline font is being used
-func isPowerlineFont() bool {
-	// Attempt to print Powerline symbols
-	var powerlineSymbols = []rune{
-		'\uE0B0', // 
-		'\uE0B1', // 
-		'\uE0A0', // 
-		'\uE0A1', // 
-	}
-	for _, symbol := range powerlineSymbols {
-		symbolStr := fmt.Sprintf("%c", symbol)
-		// Check if the rendered string contains replacement characters
-		if strings.ContainsRune(symbolStr, '\uFFFD') {
-			return false
-		}
-	}
-	return true
 }
