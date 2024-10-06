@@ -130,8 +130,24 @@ func getConsoleHandle() syscall.Handle {
 	return handle
 }
 
+// Get the current terminal width
 func getTerminalWidth() int {
-	return 80
+
+	// Get the handle to the standard output (stdout).
+	handle := getConsoleHandle()
+
+	// Create a structure to store the console screen buffer information
+	var csbi _CONSOLE_SCREEN_BUFFER_INFO
+
+	// Call GetConsoleScreenBufferInfo
+	ret, _, _ := getConsoleScreenBufferInfo.Call(uintptr(handle), uintptr(unsafe.Pointer(&csbi)))
+	if ret == 0 {
+		return 80 // default width
+	}
+
+	// The width of the terminal window is (Right - Left + 1)
+	width := int(csbi.Window.Right - csbi.Window.Left + 1)
+	return width
 }
 
 // consoleCursorInfo represents the cursor info on Windows.

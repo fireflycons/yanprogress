@@ -1,4 +1,3 @@
-
 // Package yanprogress provides Yet ANother Progressbar!
 //
 // This is a simple one that provides a bar when the total value is known, or a spinner when it is not.
@@ -218,7 +217,7 @@ func (p *ProgressBar) renderTerminal(percentage int, speedFormatted string) {
 		p.statusChanged = false
 	}
 
-	fmt.Fprintf(p.dest, "%s\n", p.status)
+	fmt.Fprintf(p.dest, "%s\n", ellipsize(p.status, width))
 
 	if p.max > 0 {
 		// Percentage bar
@@ -276,4 +275,38 @@ func formatSpeed(speed float64) string {
 		return fmt.Sprintf("%.1f", speed) // One decimal place if speed < 100
 	}
 	return fmt.Sprintf("%.0f", speed) // Whole number if speed >= 100
+}
+
+// ellipsize function truncates a string at the nearest word boundary to fit within the given width
+func ellipsize(s string, width int) string {
+	// Check if the string is shorter than or equal to the width
+	if len(s) <= width {
+		return s
+	}
+
+	// If the width is too small to fit even "...", return "..."
+	if width <= 3 {
+		return "..."
+	}
+
+	// Prepare for truncation, leaving space for the ellipsis
+	trimWidth := width - 3
+	words := strings.Fields(s)
+	var result strings.Builder
+
+	for _, word := range words {
+		// Check if adding the next word would exceed the limit
+		if result.Len()+len(word)+1 > trimWidth {
+			break
+		}
+		if result.Len() > 0 {
+			result.WriteByte(' ') // Add a space between words
+		}
+		result.WriteString(word)
+	}
+
+	// Append ellipsis
+	result.WriteString("...")
+
+	return result.String()
 }
