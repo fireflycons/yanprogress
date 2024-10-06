@@ -279,22 +279,20 @@ func formatSpeed(speed float64) string {
 
 // ellipsize function truncates a string at the nearest word boundary to fit within the given width
 func ellipsize(s string, width int) string {
+
 	// Check if the string is shorter than or equal to the width
 	if len(s) <= width {
 		return s
 	}
 
-	// If the width is too small to fit even "...", return "..."
 	if width <= 3 {
 		return "..."
 	}
 
-	// Prepare for truncation, leaving space for the ellipsis
 	trimWidth := width - 3
-	words := strings.Fields(s)
 	var result strings.Builder
 
-	for _, word := range words {
+	for _, word := range strings.Fields(s) {
 		// Check if adding the next word would exceed the limit
 		if result.Len()+len(word)+1 > trimWidth {
 			break
