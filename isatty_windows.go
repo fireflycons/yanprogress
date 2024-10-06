@@ -1,7 +1,7 @@
 //go:build windows && !appengine
 // +build windows,!appengine
 
-package main
+package yanprogress
 
 import (
 	"syscall"

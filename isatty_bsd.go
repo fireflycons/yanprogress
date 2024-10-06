@@ -3,7 +3,7 @@
 // +build !appengine
 // +build !tinygo
 
-package main
+package yanprogress
 
 import "golang.org/x/sys/unix"
 

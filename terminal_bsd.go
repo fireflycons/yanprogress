@@ -1,7 +1,7 @@
 //go:build freebsd || openbsd || netbsd || dragonfly || darwin
 // +build freebsd openbsd netbsd dragonfly darwin
 
-package main
+package yanprogress
 
 import (
 	"bufio"

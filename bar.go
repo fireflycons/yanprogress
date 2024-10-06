@@ -3,7 +3,7 @@
 // This is a simple one that provides a bar when the total value is known, or a spinner when it is not.
 // It also detects whether the output device is a real tty. If it is not, then output is line by line suitable for log files
 // or environments that capture the terminal streams e.g. containers or CI systems.
-package main
+package yanprogress
 
 import (
 	"fmt"
