@@ -1,4 +1,4 @@
-module github.com/fireflycons/yanpb
+module github.com/fireflycons/yanprogress
 
 go 1.22.2
 
