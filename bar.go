@@ -150,7 +150,7 @@ func (p *ProgressBar) Complete() {
 // Use this to indicate to users what is currently happening.
 func (p *ProgressBar) SetStatus(status string) {
 
-	p.status = strings.TrimSpace(status)
+	p.status = strings.ReplaceAll(strings.TrimSpace(status), "\n", " ")
 	p.statusChanged = true
 
 	if p.isRunning {
