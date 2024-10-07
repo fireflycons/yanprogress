@@ -30,6 +30,7 @@ type (
 		isRunning     bool            // true after Start has been called
 		statusChanged bool            // Set if SetStatus is called
 		isaTTY        bool            // Set by constructor to know if we have a real TTY
+		paused        bool            // True if paused
 		done          chan struct{}   // Channel to signal completion
 	}
 
@@ -89,6 +90,20 @@ func (p *ProgressBar) Inc() {
 // Set sets the progress bar's value to a specific value.
 func (p *ProgressBar) Set(value uint64) {
 	atomic.StoreUint64(&p.current, value)
+}
+
+// Pause puases redrawing of the bar, e.g. to accept console input
+func (p *ProgressBar) Pause() {
+	// in case it's in the middle of a redraw
+	p.lock.Lock()
+	p.paused = true
+	p.lock.Unlock()
+}
+
+// Resume resumes redrawing of the bar
+func (p *ProgressBar) Resume() {
+	p.paused = false
+	p.prepareNewLines()
 }
 
 // Start hides the cursor and starts drawing the progress bar.
@@ -169,6 +184,10 @@ func (p *ProgressBar) redraw() {
 
 	p.lock.Lock()
 	defer p.lock.Unlock()
+
+	if p.paused {
+		return
+	}
 
 	// Calculate progress percentage and iterations/second
 	current := atomic.LoadUint64(&p.current)
